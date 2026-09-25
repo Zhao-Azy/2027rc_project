@@ -269,7 +269,7 @@ static void Chassis_Steer_Contrary_Calculte(Chassis_Data *chassis_data)
  */
 static void Chassis_Contrary_Calculte(Chassis_Data *chassis_data)
 {
-    // 底盘几何参数：麦轮在底盘坐标系中的半轮距
+    // 底盘几何参数：全向在底盘坐标系中的半轮距
     // 沿用原舵轮底盘的底盘半径与THETA角换算轮距  前x左y
     float lx = chassis_data->chassis_radius * sinf(Angle_To_Rad(THETA)); // 纵向半轮距 x
     float ly = chassis_data->chassis_radius * cosf(Angle_To_Rad(THETA)); // 横向半轮距 y
@@ -294,7 +294,7 @@ static void Chassis_Contrary_Calculte(Chassis_Data *chassis_data)
         chassis_data->wheel_cal_Speed[3] = 0.0f;
     }
 
-    // 麦轮底盘无舵向电机，舵向角固定为0
+    // 底盘无舵向电机，舵向角固定为0
     for (int i = 0; i < 4; i++)
     {
         chassis_data->steer_cal_angle[i] = 0.0f;
