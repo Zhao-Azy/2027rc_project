@@ -1,0 +1,79 @@
+# ============================================================
+#  2027rc_project —— 仓库只收录固件源码 (dm_demo/)
+#  其余为本地参考资料 / 工具链 / 构建产物，不纳入版本管理
+# ============================================================
+
+# ---------- 1. 非固件资料目录 ----------
+# HI14 是厂家上位机 + 数据手册(PDF)，含约 100MB 的 Qt 运行库
+/HI14/
+# 原理图 / 说明书 / 入队手册等 PDF、docx、markdown
+/*.pdf
+/*.docx
+/*.md
+!README.md
+*.pdf
+# 仓库只收录源码，厂家 PDF 手册一律不入库
+# 串口 / 姿态调试数据导出
+*.csv
+yaw_log.txt
+# 一次性分析脚本
+/tools/
+
+# ---------- 2. 嵌套 Git 仓库备份 ----------
+# dm_demo 原有的独立仓库已重命名为 .git_backup_nested 就地保留（不删除，但不入库）
+/dm_demo/.git_backup_nested/
+
+# ---------- 3. Keil MDK-ARM 构建产物 ----------
+# R1/ 是编译输出目录（.o/.axf/.hex/.map 等，实测约 140MB）
+**/MDK-ARM/R1/
+**/MDK-ARM/DebugConfig/
+**/MDK-ARM/RTE/
+**/MDK-ARM/.claude/
+*.o
+*.crf
+*.d
+*.axf
+*.hex
+*.bin
+*.map
+*.iex
+*.dep
+*.htm
+*.lnp
+*.lst
+*.build_log.htm
+*.scvd
+
+# ---------- 4. 编辑器 / IDE / 工具 ----------
+.vscode/
+.idea/
+.claude/
+**/.claude/
+# Keil 的 uVision GUI 布局文件（含本机窗口坐标，无协作价值）
+*.uvguix.*
+# Office 打开文档时产生的锁文件
+~$*
+
+# ---------- 5. 操作系统 ----------
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# ---------- 6. 编译中间件与产物 ----------
+Debug/
+Release/
+build/
+Output/
+*.elf
+*.su
+*.dwo
+*.gcno
+*.gcda
+
+# ---------- 7. 本地环境 / 密钥（切勿提交） ----------
+.env
+.env.*
+*.local
+*.secret

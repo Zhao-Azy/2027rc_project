@@ -1,0 +1,14 @@
+# Keil MDK-ARM build output (compiled intermediates/binaries only)
+MDK-ARM/R1/
+*.o
+*.crf
+*.d
+*.axf
+*.hex
+*.map
+*.iex
+*.dep
+*.htm
+
+# Local tooling (Claude Code)
+.claude/
