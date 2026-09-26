@@ -106,7 +106,7 @@ void HI14_CanRxProcess(FDCAN_RxHeaderTypeDef *hdr, uint8_t *data, Gyro *gyro)
         case 0x380u:   /* 欧拉角 横滚/俯仰/航向，i16 × 0.01 deg */
             hi14.roll2  = (float)HI14_ReadI16(&data[0]) * 0.01f;
             hi14.pitch2 = (float)HI14_ReadI16(&data[2]) * 0.01f;
-            hi14.yaw2   = (float)HI14_ReadI16(&data[4]) * 0.01f;
+            hi14.yaw2   = -(float)HI14_ReadI16(&data[4]) * 0.01f;   /* 与四元数同一符号约定 */
             if (hi14.yaw2 < hi14.yaw2_min) { hi14.yaw2_min = hi14.yaw2; }
             if (hi14.yaw2 > hi14.yaw2_max) { hi14.yaw2_max = hi14.yaw2; }
             if (s_quat_ok == 0u)   /* 还没有四元数时，先用这一路当航向源 */
@@ -137,7 +137,9 @@ void HI14_CanRxProcess(FDCAN_RxHeaderTypeDef *hdr, uint8_t *data, Gyro *gyro)
             if (t < -1.0f) { t = -1.0f; }
             hi14.pitch = asinf(t) * HI14_RAD2DEG;
 
-            hi14.yaw_pm180 = atan2f(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z)) * HI14_RAD2DEG;
+            /* 符号统一：模块四元数解出的航向与"逆时针为正"相反（也与原 MINS500 的约定相反），
+             * 且与 gyro[2] 的变化率互为镜像。这里统一翻正，上层（yaw 环 / 坐标变换）无需再管符号。*/
+            hi14.yaw_pm180 = -(atan2f(2.0f * (w * z + x * y), 1.0f - 2.0f * (y * y + z * z)) * HI14_RAD2DEG);
             hi14.yaw_360   = (hi14.yaw_pm180 < 0.0f) ? (hi14.yaw_pm180 + 360.0f) : hi14.yaw_pm180;
 
             if (hi14.yaw_pm180 < hi14.yaw_min) { hi14.yaw_min = hi14.yaw_pm180; }
@@ -183,9 +185,10 @@ void HI14_CanRxProcess(FDCAN_RxHeaderTypeDef *hdr, uint8_t *data, Gyro *gyro)
             hi14.pitch = (float)HI14_ReadI32(&data[4]) * 0.001f;
             break;
 
-        case 0xFF41:   /* 航向：前 4 字节 0~360 顺时针，后 4 字节 ±180 逆时针为正 */
-            hi14.yaw_360   = (float)(uint32_t)HI14_ReadI32(&data[0]) * 0.001f;
-            hi14.yaw_pm180 = (float)HI14_ReadI32(&data[4]) * 0.001f;
+        case 0xFF41:   /* 航向：前 4 字节 0~360 顺时针，后 4 字节 ±180 逆时针为正
+                        * 厂商约定"顺时针为正"，与本地"逆时针为正"相反，故取负统一 */
+            hi14.yaw_pm180 = -(float)HI14_ReadI32(&data[4]) * 0.001f;
+            hi14.yaw_360   = (hi14.yaw_pm180 < 0.0f) ? (hi14.yaw_pm180 + 360.0f) : hi14.yaw_pm180;
             have_yaw = 1u;
             break;
 

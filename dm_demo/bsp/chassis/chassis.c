@@ -73,7 +73,7 @@ void Chassis_Control(Chassis_Data *chassis_data, Chassis_Mode_e chassis_mode,
         break;
     case mid_speed:
         speed_k = 2.5f;
-        chassis_data->increase_speed_temp = 0.3f; // 加速度
+        chassis_data->increase_speed_temp = 0.6f; // 加速度（原 0.3：满舵要 1s，现在约 0.5s）
         chassis_data->reduce_speed_temp = 2.3f;
         w_k = 2.355f;
         break;
@@ -101,7 +101,10 @@ void Chassis_Control(Chassis_Data *chassis_data, Chassis_Mode_e chassis_mode,
     }
 
     // 坐标系转换
-    Coordinate_Transform_World_To_Robot(&chassis_data->target_world_velocity, &chassis_data->target_robot_velocity, chassis_data->current_yaw);
+    // 注意：本工程 hold 的航向（current_yaw / MINS500_data.real_yaw_1）是"顺时针为正"，
+    //       而世界系->车体系的旋转矩阵要求"逆时针为正"，故这里传 -current_yaw。
+    //       （不取反的话车身每转 θ，摇杆方向会偏 2θ：朝南北看似正常、朝东西正好相反。）
+    Coordinate_Transform_World_To_Robot(&chassis_data->target_world_velocity, &chassis_data->target_robot_velocity, -chassis_data->current_yaw);
     // 逆解算轮速
     Chassis_Contrary_Calculte(chassis_data);
 }
@@ -109,8 +112,8 @@ void Chassis_Control(Chassis_Data *chassis_data, Chassis_Mode_e chassis_mode,
 void Chassis_Control_Auto(Chassis_Data *chassis_data)
 {
 
-    // 坐标系转换
-    Coordinate_Transform_World_To_Robot(&chassis_data->target_world_velocity, &chassis_data->target_robot_velocity, chassis_data->current_yaw);
+    // 坐标系转换（同上：航向取反，保证摇杆/路径的世界系方向与车身朝向无关）
+    Coordinate_Transform_World_To_Robot(&chassis_data->target_world_velocity, &chassis_data->target_robot_velocity, -chassis_data->current_yaw);
     // 逆解算轮速
     Chassis_Contrary_Calculte(chassis_data);
 }

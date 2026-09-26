@@ -83,9 +83,9 @@ static const HI14_RateTypeDef hi14_rates[] =
  *   0 = 不启用 —— 完全保持原来的驾驶手感（遥控器直接给平移+旋转）
  *   1 = 启用   —— 上电时锁定当前朝向，之后 pid_w 维持航向，遥控器只管平移 */
 #define CHASSIS_YAW_HOLD   1
-/* 符号：由实测日志确定——偏差为正时车身往负方向转（正反馈），故取 -1。
- * 若以后换陀螺仪/改线序导致又反了，把它改回 (+1.0f)。 */
-#define CHASSIS_YAW_SIGN   (-1.0f)
+/* 符号：HI14 驱动的航向已经在 bsp 层统一成"逆时针为正"（与原 MINS500 一致），
+ * 所以这里用 +1，yaw 环和坐标变换同时正确。若以后换传感器导致方向反了再改。 */
+#define CHASSIS_YAW_SIGN   (+1.0f)
 
 /* yaw 环整定开关：1 = 目标航向在 ±YAW_TUNE_STEP_DEG 之间方波切换（阶跃测试），
  *                 同时把 target/actual/err/Vw/gyroZ 以 50Hz 从串口输出，供采数拟合；
@@ -99,7 +99,8 @@ static const HI14_RateTypeDef hi14_rates[] =
  *         1000~1400 → 180°     1400~1800 → 顺时针 270°
  * 边界带滞回，旋钮停在边界附近时不会来回跳档。 */
 #define YAW_DIR_SEL         1        // 1=启用旋钮选方向；0=只锁上电方向
-#define YAW_DIR_CW_SIGN     (+1.0f)  // 若"顺时针 90°"档实际是逆时针转，改成 (-1.0f)
+/* 驱动已统一成"逆时针为正"，所以"顺时针转 90°"= 目标航向减 90° ⇒ 取 -1 */
+#define YAW_DIR_CW_SIGN     (-1.0f)  // 若旋钮档实际转向相反，改成 (+1.0f)
 #define YAW_DIR_HYST        20u      // 档位边界滞回（SBUS 原始值）
 
 /* yaw 环遥测（类型声明在 fdcan_it.h，供 app/chassis_control.c 打印） */
@@ -501,7 +502,18 @@ void Chassis_C620_Init(void)
 #define SBUS_AXIS_CENTER    1000
 #define SBUS_AXIS_DEADBAND  200
 #define CHASSIS_INPUT_MAX   150.0f
-#define CHASSIS_SPEED_SCALE 5.65f
+/* 轮速比例：逆解算给出的是"轮子输出轴 rpm"，而 C620 用的是"电机转子 rpm"。
+ * M3508 是 19:1 减速，故理论上应 ×19；实测手感按 5.65 偏慢（实际车速约为理论值的 30%）。   *
+ * 换算：转子rpm = 轮速rpm × 本系数；轮子线速度 = (转子rpm / 19) / 60 × 2π × 0.075 m      *
+ *   5.65 → 约 1.1 m/s（原值）    10.0 → 约 2.0 m/s（当前）    再往上加就接近电机上限(≈8900rpm) */
+#define CHASSIS_SPEED_SCALE 10.0f
+
+/* 快慢档：遥控器 CH[8] 两段开关
+ *   200  → 慢档 GEAR_SLOW_SCALE（对接、九宫格放块等精细动作）
+ *   1800 → 快档 GEAR_FAST_SCALE（跑位）                                           */
+#define GEAR_FAST_SCALE     12.0f
+#define GEAR_SLOW_SCALE     6.0f
+#define GEAR_HYST           50u
 
 static float SBUS_Axis(uint16_t value)
 {
@@ -543,6 +555,7 @@ void App_SBUS_Chassis(void *argument)
 {
 	Chassis_Data sbus_chassis = {stop};
 	Chassis_Motor motor = {0};
+	static uint8_t s_gear_fast = 1u;   // 快慢档状态（CH[8]）
 #if CHASSIS_YAW_HOLD
 	static uint8_t s_yaw_ready = 0;   // IMU 航向可用后才开 yaw 环
 	static float   s_yaw_base  = 0.0f;   // 上电锁定的基准朝向
@@ -618,9 +631,15 @@ void App_SBUS_Chassis(void *argument)
 #else
 		Chassis_Control(&sbus_chassis, mid_speed, 0);
 #endif
+		/* 快慢档：遥控器 CH[8] 两段开关（200=慢档 / 1800=快档），带滞回 */
+		if (CH[8] > (1000u + GEAR_HYST))      { s_gear_fast = 1u; }
+		else if (CH[8] < (1000u - GEAR_HYST)) { s_gear_fast = 0u; }
+
+		float wheel_scale = (s_gear_fast != 0u) ? GEAR_FAST_SCALE : GEAR_SLOW_SCALE;
+
 		for (uint8_t i = 0; i < 4; i++)
 		{
-			motor.wheel_speed[i] = sbus_chassis.wheel_speed[i] * CHASSIS_SPEED_SCALE;
+			motor.wheel_speed[i] = sbus_chassis.wheel_speed[i] * wheel_scale;
 			motor.steer_angle[i] = sbus_chassis.steer_angle[i];
 		}
 
