@@ -9,7 +9,7 @@
 // HI14 IMU 观测打印（USART1）
 //   IMU_DEBUG       = 1 → Vofa+ JustFloat 二进制（画波形用）
 //   IMU_DEBUG_ASCII = 1 → 纯文本行（任意串口助手文本模式直接读，排障用）
-// 两者不能同时开，否则同一路串口会混流。
+// 两者不能同时开，否则同一路串口会混流
 #define IMU_DEBUG        0
 #define IMU_DEBUG_ASCII  0
 #define YAW_TUNE_DEBUG   0   // yaw 环整定采数（50Hz，短行）；整定完改回 0
