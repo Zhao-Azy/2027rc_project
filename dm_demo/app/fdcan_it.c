@@ -30,6 +30,7 @@ DJI_C620_HandleTypeDef test_3508;
 HI14_IdStat hi14_ids[HI14_ID_MAX] = {0};
 uint8_t hi14_id_num = 0;
 
+
 static void HI14_RecordId(FDCAN_RxHeaderTypeDef *hdr, const uint8_t *d)
 {
 	for (uint8_t i = 0; i < hi14_id_num; i++)
@@ -77,7 +78,7 @@ static const HI14_RateTypeDef hi14_rates[] =
 	{ 125, 6, 139, 20},   // 120M/(6×160)
 };
 
-#define HI14_RATE_SCAN   0   // 1=波特率自动扫描；0=固定用 MX_FDCAN3_Init 设的速率（实测 500k 正确）
+#define HI14_RATE_SCAN   0   // 1=波特率自动扫描；0=固定用 MX_FDCAN3_Init 设的速率（500k）
 
 /* 是否用 HI14 IMU 航向给底盘做"锁头"（yaw 环）：
  *   0 = 不启用 —— 完全保持原来的驾驶手感（遥控器直接给平移+旋转）
@@ -178,15 +179,15 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 	{
 		DJI_C620_GetFeedback(&test_3508, &rx_header, rx_data);   // 单 3508 反馈解析
 
-//		//左臂
-//		MG5010E_GetPosition(&Left_arm.Down_motor, &rx_header, rx_data);
-//		RS00_Get_MotorData(&Left_arm.High_motor, &rx_header, rx_data);
-//		RS05_Get_MotorData(&Left_arm.Sucker_motor, &rx_header, rx_data);
+		// //左臂
+		// MG5010E_GetPosition(&Left_arm.Down_motor, &rx_header, rx_data);
+		// RS00_Get_MotorData(&Left_arm.High_motor, &rx_header, rx_data);
+		// RS05_Get_MotorData(&Left_arm.Sucker_motor, &rx_header, rx_data);
 
-//		//右臂
-//		MG5010E_GetPosition(&Right_arm.Down_motor, &rx_header, rx_data);
-//		RS00_Get_MotorData(&Right_arm.High_motor, &rx_header, rx_data);
-//		RS05_Get_Mo torData(&Right_arm.Sucker_motor, &rx_header, rx_data);
+		// //右臂
+		// MG5010E_GetPosition(&Right_arm.Down_motor, &rx_header, rx_data);
+		// RS00_Get_MotorData(&Right_arm.High_motor, &rx_header, rx_data);
+		// RS05_Get_MotorData(&Right_arm.Sucker_motor, &rx_header, rx_data);
 	}else if(hfdcan == &hfdcan3)
 	{
 		HI14_RecordId(&rx_header, rx_data);                        // 诊断：按 CAN ID 统计
@@ -383,7 +384,7 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 
 /**
  * @brief FDCAN发送任务：底盘全向轮速度环控制（标准C620协议，直连电调）
- * @note  需在 freertos.c 中取消 osThreadNew(App_FDCAN, ...) 的注释才会运行
+ * @note   需在 freertos.c 中取消 osThreadNew(App_FDCAN, ...) 的注释才会运行
  */
 void App_FDCAN(void *argument)
 {

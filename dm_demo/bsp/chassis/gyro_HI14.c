@@ -8,11 +8,12 @@
  *   2) 首次收到数据时把 real_yaw 初始化为 HI14_YAW_INIT_DEG / HI14_YAW_SCALE，
  *      使 real_yaw_1 上电正好从 180° 开始（与底盘 target_yaw 的初值一致）；
  *   3) real_yaw_1 = real_yaw × HI14_YAW_SCALE（刻度修正）。
- * author: 
+ * author: balto
+ * creation time：2026/9/25
  * ==================================================== */
 
 #define HI14_YAW_INIT_DEG   180.0f     // 上电初始航向（度）
-#define HI14_YAW_SCALE      1.0f       // 刻度修正：原 MINS500 用 0.97297f；HI14 由四元数解算，取 1.0
+#define HI14_YAW_SCALE      1.0f       // HI14 由四元数解算，取 1.0
 #define HI14_RAD2DEG        57.29578f
 
 HI14_Data hi14 = {0};
@@ -35,10 +36,10 @@ void HI14_Init(void)
     s_quat_ok = 0;
     hi14.frame_count = 0;
     hi14.rx_any = 0;
-    /* 总线本身的启动由 app 层 FDCAN_Init(&hfdcan3) 负责（与原驱动的分工一致） */
+    /* 总线本身的启动由 app 层 FDCAN_Init(&hfdcan3) 负责 */
 }
 
-/* 航向累计：与原 MINS500_Data_Process 相同的写法 */
+/* 航向累计 */
 static void HI14_UpdateYaw(Gyro *gyro, float sensor_yaw)
 {
     if (gyro->first_flag == 0)
@@ -71,7 +72,7 @@ static void HI14_UpdateYaw(Gyro *gyro, float sensor_yaw)
  * @brief 处理一帧 HI14 报文（在 FDCAN3 的接收回调里调用）
  * @param hdr  接收头
  * @param data 数据域
- * @param gyro 目标陀螺仪结构（通常是 &MINS500_data）
+ * @param gyro 目标陀螺仪结构
  */
 void HI14_CanRxProcess(FDCAN_RxHeaderTypeDef *hdr, uint8_t *data, Gyro *gyro)
 {

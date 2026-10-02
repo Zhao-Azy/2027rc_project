@@ -143,128 +143,6 @@ static void Chassis_Pid_Init(void)
                    0.0f);         // kd   （原 4.0；会自激，保持 0）
 }
 
-// =====================================================================
-//  原舵轮底盘逆解算（已停用，独立保留备用）
-// =====================================================================
-#if 0
-/**
- *  @brief 舵轮底盘逆解算（原版）
- *  @param 底盘结构体
- *  @retval 无
- */
-static void Chassis_Steer_Contrary_Calculte(Chassis_Data *chassis_data)
-{
-    // 舵向电机反馈角度  这里将反馈回来的角度转化为弧度   ********重要！*******
-    chassis_data->steer_back_angle[0] = Angle_To_Rad(LF_steer.position + DELTA);
-    chassis_data->steer_back_angle[1] = Angle_To_Rad(RF_steer.position + DELTA);
-    chassis_data->steer_back_angle[2] = Angle_To_Rad(RB_steer.position + DELTA);
-    chassis_data->steer_back_angle[3] = Angle_To_Rad(LB_steer.position + DELTA);
-
-
-    // 底盘信息
-    float rx = chassis_data->chassis_radius * sinf(Angle_To_Rad(THETA));
-    float ry = chassis_data->chassis_radius * cosf(Angle_To_Rad(THETA));
-    float Vx = chassis_data->target_robot_velocity.Vx;
-    float Vy = chassis_data->target_robot_velocity.Vy;
-    float Vw = chassis_data->target_robot_velocity.Vw;
-
-    // 轮电机解算  前x左y
-    chassis_data->wheel_cal_Speed[0] = sqrt(pow((Vx - Vw * ry), 2) + pow((Vy + Vw * rx), 2)); // LF
-    chassis_data->wheel_cal_Speed[1] = sqrt(pow((Vx + Vw * ry), 2) + pow((Vy + Vw * rx), 2)); // RF
-    chassis_data->wheel_cal_Speed[2] = sqrt(pow((Vx + Vw * ry), 2) + pow((Vy - Vw * rx), 2)); // RB
-    chassis_data->wheel_cal_Speed[3] = sqrt(pow((Vx - Vw * ry), 2) + pow((Vy - Vw * rx), 2)); // LB
-
-    //  舵向电机解算
-    chassis_data->steer_cal_angle[0] = atan2f((Vy + Vw * rx), (Vx - Vw * ry)) + LF_ANGLE_OFFSET; // LF
-    chassis_data->steer_cal_angle[1] = atan2f((Vy + Vw * rx), (Vx + Vw * ry)) + RF_ANGLE_OFFSET; // RF
-    chassis_data->steer_cal_angle[2] = atan2f((Vy - Vw * rx), (Vx + Vw * ry)) + RB_ANGLE_OFFSET; // RB
-    chassis_data->steer_cal_angle[3] = atan2f((Vy - Vw * rx), (Vx - Vw * ry)) + LB_ANGLE_OFFSET; // LB
-
-
-    // 是否开启泊车  默认开启
-    if (chassis_data->park_flag == 0)
-    {
-        if (fabsf(Vx) < 0.01f && fabsf(Vy) < 0.01f && fabsf(Vw) < 0.01f)
-        {
-            if (Vw > 0.0f)
-            {
-                chassis_data->steer_cal_angle[0] = Angle_To_Rad(180.0f - THETA) + LF_ANGLE_OFFSET; // LF
-                chassis_data->steer_cal_angle[1] = Angle_To_Rad(THETA) + RF_ANGLE_OFFSET;           // RF
-                chassis_data->steer_cal_angle[2] = -Angle_To_Rad(THETA) + RB_ANGLE_OFFSET;          // RB
-                chassis_data->steer_cal_angle[3] = -Angle_To_Rad(180.0f - THETA) + LB_ANGLE_OFFSET; // LB
-            }
-            else
-            {
-                chassis_data->steer_cal_angle[0] = -Angle_To_Rad(THETA) + LF_ANGLE_OFFSET;          // LF
-                chassis_data->steer_cal_angle[1] = -Angle_To_Rad(180.0f - THETA) + RF_ANGLE_OFFSET; // RF
-                chassis_data->steer_cal_angle[2] = Angle_To_Rad(180.0f - THETA) + RB_ANGLE_OFFSET;  // RB
-                chassis_data->steer_cal_angle[3] = Angle_To_Rad(THETA) + LB_ANGLE_OFFSET;           // LB
-            }
-
-        }
-    }
-    else // 不开启则保持原舵向
-    {
-        if (Vx == 0.0f && Vy == 0.0f && Vw == 0.0f)
-        {
-            chassis_data->steer_cal_angle[0] = chassis_data->last_steer_cal_angle[0];
-            chassis_data->steer_cal_angle[1] = chassis_data->last_steer_cal_angle[1];
-            chassis_data->steer_cal_angle[2] = chassis_data->last_steer_cal_angle[2];
-            chassis_data->steer_cal_angle[3] = chassis_data->last_steer_cal_angle[3];
-        }
-    }
-
-    // 刹车时泊车
-    if (chassis_data->stop_flag == 1 || chassis_data->ladar_err_flag == 1)
-    {
-        chassis_data->steer_cal_angle[0] = Angle_To_Rad(90.0f - THETA) + LF_ANGLE_OFFSET; // LF
-        chassis_data->steer_cal_angle[1] = Angle_To_Rad(THETA - 90.0f) + RF_ANGLE_OFFSET; // RF
-        chassis_data->steer_cal_angle[2] = Angle_To_Rad(90.0f - THETA) + RB_ANGLE_OFFSET; // RB
-        chassis_data->steer_cal_angle[3] = Angle_To_Rad(THETA - 90.0f) + LB_ANGLE_OFFSET; // LB
-
-        chassis_data->wheel_cal_Speed[0] = 0.0f;
-        chassis_data->wheel_cal_Speed[1] = 0.0f;
-        chassis_data->wheel_cal_Speed[2] = 0.0f;
-        chassis_data->wheel_cal_Speed[3] = 0.0f;
-    }
-
-    // 最小舵角处理
-    for (int i = 0; i < 4; i++)
-    {
-        chassis_data->angle_err[i] = chassis_data->steer_cal_angle[i] - chassis_data->steer_back_angle[i]; // 求出两角误差
-        chassis_data->angle_err[i] = Angle_Normalize(chassis_data->angle_err[i]);                          // 角度归一化
-
-
-        if (chassis_data->angle_err[i] > M_PI / 2 && chassis_data->angle_err[i] <= M_PI)
-        {
-            chassis_data->steer_cal_angle[i] = chassis_data->steer_back_angle[i] + chassis_data->angle_err[i] - M_PI;
-            chassis_data->wheel_cal_Speed[i] = -chassis_data->wheel_cal_Speed[i];
-        }
-        else if (chassis_data->angle_err[i] >= -M_PI && chassis_data->angle_err[i] < -(M_PI / 2))
-        {
-            chassis_data->steer_cal_angle[i] = chassis_data->steer_back_angle[i] + chassis_data->angle_err[i] + M_PI;
-            chassis_data->wheel_cal_Speed[i] = -chassis_data->wheel_cal_Speed[i];
-        }else
-        {
-            chassis_data->steer_cal_angle[i] = chassis_data->steer_back_angle[i] + chassis_data->angle_err[i];
-        }
-    }
-
-    // 给上一次舵向角度赋值
-    for (int i = 0; i < 4; i++)
-    {
-        chassis_data->last_steer_cal_angle[i] = chassis_data->steer_cal_angle[i];
-    }
-
-    // 给电机赋值
-    for (int i = 0; i < 4; i++)
-    {
-        chassis_data->wheel_speed[i] = Speed_Transform(chassis_data->wheel_cal_Speed[i] / chassis_data->wheel_radius); // 将输出的线速度改为角速度 再改为rpm  m/s -> rad/s -> rpm
-        chassis_data->steer_angle[i] = Rad_To_Angle(chassis_data->steer_cal_angle[i]);                                 // 将解算出来的弧度转化为角度
-    }
-}
-#endif // 0
-
 /**
  *  @brief 全向轮（麦克纳姆轮）底盘逆解算
  *  @param 底盘结构体
@@ -468,6 +346,127 @@ static float Angle_To_Rad(float angle)
 {
     return (angle * 0.0174532925f);
 }
+// =====================================================================
+//  原舵轮底盘逆解算（已停用，独立保留备用）
+// =====================================================================
+#if 0
+/**
+ *  @brief 舵轮底盘逆解算（原版）
+ *  @param 底盘结构体
+ *  @retval 无
+ */
+static void Chassis_Steer_Contrary_Calculte(Chassis_Data *chassis_data)
+{
+    // 舵向电机反馈角度  这里将反馈回来的角度转化为弧度   ********重要！*******
+    chassis_data->steer_back_angle[0] = Angle_To_Rad(LF_steer.position + DELTA);
+    chassis_data->steer_back_angle[1] = Angle_To_Rad(RF_steer.position + DELTA);
+    chassis_data->steer_back_angle[2] = Angle_To_Rad(RB_steer.position + DELTA);
+    chassis_data->steer_back_angle[3] = Angle_To_Rad(LB_steer.position + DELTA);
+
+
+    // 底盘信息
+    float rx = chassis_data->chassis_radius * sinf(Angle_To_Rad(THETA));
+    float ry = chassis_data->chassis_radius * cosf(Angle_To_Rad(THETA));
+    float Vx = chassis_data->target_robot_velocity.Vx;
+    float Vy = chassis_data->target_robot_velocity.Vy;
+    float Vw = chassis_data->target_robot_velocity.Vw;
+
+    // 轮电机解算  前x左y
+    chassis_data->wheel_cal_Speed[0] = sqrt(pow((Vx - Vw * ry), 2) + pow((Vy + Vw * rx), 2)); // LF
+    chassis_data->wheel_cal_Speed[1] = sqrt(pow((Vx + Vw * ry), 2) + pow((Vy + Vw * rx), 2)); // RF
+    chassis_data->wheel_cal_Speed[2] = sqrt(pow((Vx + Vw * ry), 2) + pow((Vy - Vw * rx), 2)); // RB
+    chassis_data->wheel_cal_Speed[3] = sqrt(pow((Vx - Vw * ry), 2) + pow((Vy - Vw * rx), 2)); // LB
+
+    //  舵向电机解算
+    chassis_data->steer_cal_angle[0] = atan2f((Vy + Vw * rx), (Vx - Vw * ry)) + LF_ANGLE_OFFSET; // LF
+    chassis_data->steer_cal_angle[1] = atan2f((Vy + Vw * rx), (Vx + Vw * ry)) + RF_ANGLE_OFFSET; // RF
+    chassis_data->steer_cal_angle[2] = atan2f((Vy - Vw * rx), (Vx + Vw * ry)) + RB_ANGLE_OFFSET; // RB
+    chassis_data->steer_cal_angle[3] = atan2f((Vy - Vw * rx), (Vx - Vw * ry)) + LB_ANGLE_OFFSET; // LB
+
+
+    // 是否开启泊车  默认开启
+    if (chassis_data->park_flag == 0)
+    {
+        if (fabsf(Vx) < 0.01f && fabsf(Vy) < 0.01f && fabsf(Vw) < 0.01f)
+        {
+            if (Vw > 0.0f)
+            {
+                chassis_data->steer_cal_angle[0] = Angle_To_Rad(180.0f - THETA) + LF_ANGLE_OFFSET; // LF
+                chassis_data->steer_cal_angle[1] = Angle_To_Rad(THETA) + RF_ANGLE_OFFSET;           // RF
+                chassis_data->steer_cal_angle[2] = -Angle_To_Rad(THETA) + RB_ANGLE_OFFSET;          // RB
+                chassis_data->steer_cal_angle[3] = -Angle_To_Rad(180.0f - THETA) + LB_ANGLE_OFFSET; // LB
+            }
+            else
+            {
+                chassis_data->steer_cal_angle[0] = -Angle_To_Rad(THETA) + LF_ANGLE_OFFSET;          // LF
+                chassis_data->steer_cal_angle[1] = -Angle_To_Rad(180.0f - THETA) + RF_ANGLE_OFFSET; // RF
+                chassis_data->steer_cal_angle[2] = Angle_To_Rad(180.0f - THETA) + RB_ANGLE_OFFSET;  // RB
+                chassis_data->steer_cal_angle[3] = Angle_To_Rad(THETA) + LB_ANGLE_OFFSET;           // LB
+            }
+
+        }
+    }
+    else // 不开启则保持原舵向
+    {
+        if (Vx == 0.0f && Vy == 0.0f && Vw == 0.0f)
+        {
+            chassis_data->steer_cal_angle[0] = chassis_data->last_steer_cal_angle[0];
+            chassis_data->steer_cal_angle[1] = chassis_data->last_steer_cal_angle[1];
+            chassis_data->steer_cal_angle[2] = chassis_data->last_steer_cal_angle[2];
+            chassis_data->steer_cal_angle[3] = chassis_data->last_steer_cal_angle[3];
+        }
+    }
+
+    // 刹车时泊车
+    if (chassis_data->stop_flag == 1 || chassis_data->ladar_err_flag == 1)
+    {
+        chassis_data->steer_cal_angle[0] = Angle_To_Rad(90.0f - THETA) + LF_ANGLE_OFFSET; // LF
+        chassis_data->steer_cal_angle[1] = Angle_To_Rad(THETA - 90.0f) + RF_ANGLE_OFFSET; // RF
+        chassis_data->steer_cal_angle[2] = Angle_To_Rad(90.0f - THETA) + RB_ANGLE_OFFSET; // RB
+        chassis_data->steer_cal_angle[3] = Angle_To_Rad(THETA - 90.0f) + LB_ANGLE_OFFSET; // LB
+
+        chassis_data->wheel_cal_Speed[0] = 0.0f;
+        chassis_data->wheel_cal_Speed[1] = 0 .0f;
+        chassis_data->wheel_cal_Speed[2] = 0.0f;
+        chassis_data->wheel_cal_Speed[3] = 0.0f;
+    }
+
+    // 最小舵角处理
+    for (int i = 0; i < 4; i++)
+    {
+        chassis_data->angle_err[i] = chassis_data->steer_cal_angle[i] - chassis_data->steer_back_angle[i]; // 求出两角误差
+        chassis_data->angle_err[i] = Angle_Normalize(chassis_data->angle_err[i]);                          // 角度归一化
+
+
+        if (chassis_data->angle_err[i] > M_PI / 2 && chassis_data->angle_err[i] <= M_PI)
+        {
+            chassis_data->steer_cal_angle[i] = chassis_data->steer_back_angle[i] + chassis_data->angle_err[i] - M_PI;
+            chassis_data->wheel_cal_Speed[i] = -chassis_data->wheel_cal_Speed[i];
+        }
+        else if (chassis_data->angle_err[i] >= -M_PI && chassis_data->angle_err[i] < -(M_PI / 2))
+        {
+            chassis_data->steer_cal_angle[i] = chassis_data->steer_back_angle[i] + chassis_data->angle_err[i] + M_PI;
+            chassis_data->wheel_cal_Speed[i] = -chassis_data->wheel_cal_Speed[i];
+        }else
+        {
+            chassis_data->steer_cal_angle[i] = chassis_data->steer_back_angle[i] + chassis_data->angle_err[i];
+        }
+    }
+
+    // 给上一次舵向角度赋值
+    for (int i = 0; i < 4; i++)
+    {
+        chassis_data->last_steer_cal_angle[i] = chassis_data->steer_cal_angle[i];
+    }
+
+    // 给电机赋值
+    for (int i = 0; i < 4; i++)
+    {
+        chassis_data->wheel_speed[i] = Speed_Transform(chassis_data->wheel_cal_Speed[i] / chassis_data->wheel_radius); // 将输出的线速度改为角速度 再改为rpm  m/s -> rad/s -> rpm
+        chassis_data->steer_angle[i] = Rad_To_Angle(chassis_data->steer_cal_angle[i]);                                 // 将解算出来的弧度转化为角度
+    }
+}
+#endif // 0
 
 // =====================================================================
 //  原舵轮代码使用的辅助函数（已停用，保留备用）
@@ -500,4 +499,7 @@ static float Angle_Normalize(float angle)
 
     return m;
 }
+
+
+
 #endif // 0
