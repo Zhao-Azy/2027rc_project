@@ -952,6 +952,11 @@
               <FileType>1</FileType>
               <FilePath>..\app\chassis_control.c</FilePath>
             </File>
+            <File>
+              <FileName>go_control.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\app\go_control.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -961,6 +966,16 @@
               <FileName>handle_rev.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\bsp\uper\handle_rev.c</FilePath>
+            </File>
+            <File>
+              <FileName>DM_J4310.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\uper\DM_J4310.c</FilePath>
+            </File>
+            <File>
+              <FileName>Unitree_GO.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\bsp\uper\Unitree_GO.c</FilePath>
             </File>
           </Files>
         </Group>

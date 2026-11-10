@@ -63,6 +63,20 @@ const osThreadAttr_t FDCAN_attributes = {
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for DM_J4310 */
+osThreadId_t DM_J4310Handle;
+const osThreadAttr_t DM_J4310_attributes = {
+  .name = "DM_J4310",
+  .stack_size = 256 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for Unitree GO */
+osThreadId_t GO_JointHandle;
+const osThreadAttr_t GO_Joint_attributes = {
+  .name = "GO_Joint",
+  .stack_size = 384 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* Definitions for Handle_Data_ToChassis */
 osMessageQueueId_t Handle_Data_ToChassisHandle;
 const osMessageQueueAttr_t Handle_Data_ToChassis_attributes = {
@@ -192,6 +206,8 @@ const osSemaphoreAttr_t Close_R_Sucker_attributes = {
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN FunctionPrototypes */
 void App_SBUS_Chassis(void *argument);
+void DM_J4310_Task(void *argument);
+void GO_Task(void *argument);
 /* USER CODE END FunctionPrototypes */
 
 void App_print(void *argument);
@@ -312,6 +328,8 @@ void MX_FREERTOS_Init(void) {
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   osThreadNew(App_SBUS_Chassis, NULL, &FDCAN_attributes);
+  DM_J4310Handle = osThreadNew(DM_J4310_Task, NULL, &DM_J4310_attributes);
+  GO_JointHandle = osThreadNew(GO_Task, NULL, &GO_Joint_attributes);
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */

@@ -38,12 +38,16 @@ extern UART_HandleTypeDef huart5;
 
 extern UART_HandleTypeDef huart1;
 
+/* USART2：板载 RS485 第 1 路，跑宇树 GO-M8010-6（4Mbps；方向脚 PD4 由 Unitree_GO_Init 初始化） */
+extern UART_HandleTypeDef huart2;
+
 /* USER CODE BEGIN Private defines */
 
 /* USER CODE END Private defines */
 
 void MX_UART5_Init(void);
 void MX_USART1_UART_Init(void);
+void MX_USART2_UART_Init(void);
 
 /* USER CODE BEGIN Prototypes */
 

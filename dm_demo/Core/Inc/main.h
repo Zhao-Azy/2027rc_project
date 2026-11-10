@@ -101,6 +101,8 @@ void Error_Handler(void);
 #define IO_14_GPIO_Port GPIOC
 #define IO_12_Pin GPIO_PIN_3
 #define IO_12_GPIO_Port GPIOD
+#define DM_EN_Pin GPIO_PIN_13
+#define DM_EN_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 

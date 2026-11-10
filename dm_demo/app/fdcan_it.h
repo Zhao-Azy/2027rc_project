@@ -4,6 +4,7 @@
 
 #include "main.h"
 #include "DJI_Transform_master.h"
+#include "DM_J4310.h"
 
 //舵轮电机回零
 typedef enum
@@ -59,5 +60,17 @@ extern YawTel_TypeDef yaw_tel;
 
 void Chassis_C620_Init(void);
 void App_SBUS_Chassis(void *argument);
+
+/* DM-J4310-2EC 关节电机（CAN2）：两台，编号 CAN_ID = 1、2，句柄定义在 app/fdcan_it.c
+ * 上电 500ms 后由 DM_J4310_Task 使能并各自转到“当前位置 + 30°”（见 DM_J4310_START_MOVE） */
+#define DM_J4310_NUM    2
+
+extern DM_J4310_HandleTypeDef dm_joint[DM_J4310_NUM];
+
+/** @brief 初始化 DM-J4310：启动 CAN2（1Mbps）+ 建句柄（不使能、不发帧） */
+void DM_J4310_App_Init(void);
+
+/** @brief DM-J4310 心跳任务：500ms 后使能并转 +30°；之后每 5ms 重发上一帧防止 CAN Timeout */
+void DM_J4310_Task(void *argument);
 
 #endif

@@ -28,6 +28,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "go_control.h"
 
 /* USER CODE END Includes */
 
@@ -102,10 +103,12 @@ int main(void)
   MX_IWDG1_Init();
   MX_UART5_Init();
   MX_USART1_UART_Init();
+  MX_USART2_UART_Init();
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   Chassis_C620_Init();
   Uart_Init();
+  GO_App_Init();          /* 宇树 GO 电机：USART2(4Mbps) + PD4 方向脚，两台 ID 0/1 */
   /* USER CODE END 2 */
 
   /* Init scheduler */

@@ -2,7 +2,7 @@
 
 
 #include "chassis_control.h"
-#include "Zifolib.h"
+#include "ZifoLib.h"
 #include "WS2811.h"
 #include "fdcan_it.h"
 

@@ -6,6 +6,7 @@
 #include "STP_23L.h"
 #include "usart_it.h"
 #include "iwdg.h"
+#include "DM_J4310.h"
 #include <math.h>
 
 
@@ -22,6 +23,45 @@ uint32_t wait_tick = 0;
 
 // 单 3508 测试句柄（方案A：C620 电调直连，挂 hfdcan2）
 DJI_C620_HandleTypeDef test_3508;
+
+/* DM-J4310-2EC 关节电机句柄（两台都挂 hfdcan2，1Mbps 标准帧）
+ * 编号（= 驱动器里的 CAN_ID）：1、2；反馈帧 ID = Master ID，出厂都是 0x00，
+ * 靠反馈数据 D[0] 低 4 位区分电机，所以报文里先比 ID 再交给对应句柄解析。
+ * 上电失能保底：DM_J4310_Init() 清零指令；DM_J4310_Task 在 500ms 后使能并各转 +30° */
+DM_J4310_HandleTypeDef dm_joint[DM_J4310_NUM];
+
+/* 电机编号表：必须和达妙调试助手里烧的 CAN_ID 一致 */
+static const uint16_t dm_can_id[DM_J4310_NUM] = {1u, 2u};
+
+/* 上电自动识别控制模式时，依次尝试的三种（对应控制帧 ID：CAN_ID / 0x100+ID / 0x200+ID）。
+ * 电机里实际配的是哪一种都行，不用再用调试助手改——谁回包就用谁。 */
+static const uint8_t dm_probe_modes[3] =
+{
+	(uint8_t)eDM_J4310_MODE_MIT,
+	(uint8_t)eDM_J4310_MODE_PV,
+	(uint8_t)eDM_J4310_MODE_VEL
+};
+
+/* ---- 临时诊断（定位“红灯 / 无反馈”用，查完就删） ----
+ * dm_diag_log：CAN2 收到的最近 16 帧（帧 ID + 当时扫描发的是哪个 ID + 8 字节）；
+ * dm_diag_sent_id：发送前记下这一帧用的 CAN ID，回包时一起存，能看出电机在哪个模式：
+ *     回包 sent_id=1        → MIT 模式，CAN_ID=1
+ *     回包 sent_id=0x101    → 位置速度(PV)模式，CAN_ID=1
+ *     回包 sent_id=0x201    → 纯速度模式，CAN_ID=1 */
+#define DM_DIAG_LOG_N       16
+typedef struct
+{
+	uint32_t id;         /* 回包帧 ID（= 电机 Master ID） */
+	uint32_t sent_id;    /* 触发这一回包时扫描用的 CAN ID */
+	uint8_t  d[8];
+} DM_DiagFrame_t;
+
+volatile DM_DiagFrame_t dm_diag_log[DM_DIAG_LOG_N];
+volatile uint32_t dm_diag_rx_cnt = 0u;
+volatile uint32_t dm_diag_sent_id = 0xFFFFFFFFu;
+
+/* 诊断：CAN2 Bus-Off 自动恢复次数（电机没上电时每 500ms +1 属正常；Live Watch 可看） */
+uint32_t dm_busoff_cnt = 0u;
 
 /* HI14 IMU 的数据结构与解析已下沉到 bsp 驱动：bsp/chassis/gyro_HI14.c
  * 这里只保留"按 CAN ID 统计"这一项 app 层诊断用的表。 */
@@ -178,6 +218,31 @@ void HAL_FDCAN_RxFifo0Callback(FDCAN_HandleTypeDef *hfdcan, uint32_t RxFifo0ITs)
 	}else if(hfdcan == &hfdcan2)
 	{
 		DJI_C620_GetFeedback(&test_3508, &rx_header, rx_data);   // 单 3508 反馈解析
+
+		/* 临时诊断：原样记下 CAN2 收到的每一帧 */
+		{
+			volatile DM_DiagFrame_t *rec =
+				&dm_diag_log[dm_diag_rx_cnt % DM_DIAG_LOG_N];
+			for (uint8_t k = 0u; k < 8u; k++)
+			{
+				rec->d[k] = rx_data[k];
+			}
+			rec->id = rx_header.Identifier;
+			rec->sent_id = dm_diag_sent_id;
+			dm_diag_rx_cnt++;
+		}
+
+		/* 两台 DM-J4310 的反馈帧只靠 D[0] 低 4 位区分（现场实测 MST_ID 可能被设成
+		 * 等于 CAN_ID，也可能还是出厂 0x00，所以这里不再按 Master ID 过滤） */
+		for (uint8_t i = 0u; i < DM_J4310_NUM; i++)
+		{
+			if ((rx_header.IdType == FDCAN_STANDARD_ID) &&
+			    (rx_header.DataLength == 8u) &&
+			    ((rx_data[0] & 0x0Fu) == (uint8_t)dm_can_id[i]))
+			{
+				DM_J4310_ParseFeedback(&dm_joint[i], rx_data);
+			}
+		}
 
 		// //左臂
 		// MG5010E_GetPosition(&Left_arm.Down_motor, &rx_header, rx_data);
@@ -483,6 +548,175 @@ void Test_3508_Task(void *argument)
     }
 }
 
+/* ================= DM-J4310-2EC（CAN2，1Mbps 标准帧） =================
+ * 和上面的单 3508 测试共用 hfdcan2：两者 ID 不冲突（DM 控制帧 0x01、反馈 0x00；
+ * C620 控制帧 0x200、反馈 0x201），只是 Test_3508_Init() 也会 Start 一次 FDCAN2，
+ * 真正的总线上电顺序以 Chassis_C620_Init() → DM_J4310_App_Init() 为准。 */
+
+#define DM_J4310_SEND_PERIOD_MS   5u   // 心跳周期 ms（驱动器 CAN Timeout 建议 2~10ms）
+
+/* 上电自检动作：500ms 后使能，再“当前位置 + 30°”，到位后由心跳保持。
+ * 改 DM_J4310_START_MOVE 为 0 即可关掉这个动作（电机上电后保持失能、零输出）。 */
+#define DM_J4310_START_MOVE        1
+#define DM_J4310_START_DELAY_MS    500u        // 上电延时，单位 ms
+#define DM_J4310_START_ANGLE_RAD   0.5235988f  // 30° = 30 × π/180，正值按驱动器正方向
+#define DM_J4310_START_KP          20.0f       // 位置刚度 N·m/rad（0~500；太小会停在半路）
+#define DM_J4310_START_KD          1.0f        // 速度阻尼 N·m·s/rad（0~5；抖就加大）
+#define DM_J4310_START_PV_VEL      3.0f        // PV 模式匀速段速度 rad/s（驱动器自己加减速）
+
+/* Bus-Off 后重试间隔 ms：DM 没上电时总线上没人 ACK，控制器会进 Bus-Off 并停收发 */
+#define DM_J4310_BUSOFF_RETRY_MS   500u
+
+/* “清错+使能”重试间隔 ms：上电自检没做完时使能帧会被忽略，必须隔一段时间再试 */
+#define DM_J4310_ENABLE_RETRY_MS   200u
+
+/* 控制模式自动识别的换档间隔 ms：每种模式试一拍，看有没有回包 */
+#define DM_J4310_PROBE_STEP_MS     200u
+
+/**
+ * @brief 初始化 DM-J4310：启动 CAN2 + 建句柄（不使能、不发帧）
+ * @note  1Mbps 由 MX_FDCAN2_Init() 给定（PSC=3, Seg1=29, Seg2=10, 内核 120MHz → 1Mbps）；
+ *        FDCAN_Init() 负责全局滤波、开 RX FIFO0 中断并启动控制器。
+ *        PMAX / VMAX / TMAX 必须与驱动器“参数设置 → 控制幅值”一致（J4310-2EC 出厂 12.5 / 30 / 10），
+ *        驱动器里改过就改这一处，否则命令会被静默等比缩放。
+ */
+void DM_J4310_App_Init(void)
+{
+	uint8_t i;
+
+	FDCAN_Init(&hfdcan2);
+
+	for (i = 0u; i < DM_J4310_NUM; i++)
+	{
+		DM_J4310_Init(&dm_joint[i], &hfdcan2,
+		              dm_can_id[i],
+		              DM_J4310_DEFAULT_MASTER_ID,
+		              DM_J4310_DEFAULT_RATIO);
+		DM_J4310_SetLimit(&dm_joint[i],
+		                  DM_J4310_DEFAULT_PMAX,
+		                  DM_J4310_DEFAULT_VMAX,
+		                  DM_J4310_DEFAULT_TMAX);
+	}
+}
+
+/**
+ * @brief DM-J4310 心跳任务 + 上电自检动作
+ * @note  1) 上电 DM_J4310_START_DELAY_MS 后使能，再把目标设成“当前位置 + 30°”，
+ *           到位后由心跳一直保持；不需要这个动作就把 DM_J4310_START_MOVE 改成 0。
+ *        2) 使能后必须保证 2~10ms 内至少有一帧下发，否则驱动器报“通讯丢失”并停输出；
+ *           未使能时一帧都不发（DM_J4310_Send() 本身也会跳过，这里先判 enabled 保住 skip_cnt 的诊断含义）。
+ *        3) 位置目标取“当前位置 + 30°”而不是绝对 30°：驱动器零点不一定是上电位置，
+ *           用相对角度才能保证每次上电都只转 30°，不会一上电就甩一大截。
+ */
+void DM_J4310_Task(void *argument)
+{
+	/* 每台独立状态 */
+	uint8_t  step[DM_J4310_NUM] = {0u};          /* 0=还没下发 +30° 目标 */
+	uint8_t  ready[DM_J4310_NUM] = {0u};         /* 1=已识别出电机实际控制模式 */
+	uint8_t  probe_idx[DM_J4310_NUM] = {0u};     /* 正在试第几种模式 */
+	uint32_t probe_tick[DM_J4310_NUM] = {0u};
+	uint32_t probe_ok[DM_J4310_NUM] = {0u};
+	uint32_t enable_tick[DM_J4310_NUM] = {0u};
+	uint32_t busoff_tick = 0u;
+	uint8_t i;
+
+	for(;;)
+	{
+		/* CAN2 Bus-Off 恢复：总线没人 ACK / 电机上电自检期间会进 Bus-Off，
+		 * 之后控制器停在 INIT 不再收发。这里每 500ms 重初始化一次。 */
+		if (((hfdcan2.Instance->PSR & FDCAN_PSR_BO) != 0u) &&
+		    ((HAL_GetTick() - busoff_tick) >= DM_J4310_BUSOFF_RETRY_MS))
+		{
+			busoff_tick = HAL_GetTick();
+			dm_busoff_cnt++;
+			HAL_FDCAN_DeInit(&hfdcan2);   /* 回 RESET（内部已 Stop，忽略其返回值） */
+			MX_FDCAN2_Init();             /* HAL_FDCAN_Init + 时钟/引脚/中断 */
+			FDCAN_Init(&hfdcan2);         /* 全局滤波 + 开 RX 中断 + Start */
+		}
+
+#if DM_J4310_START_MOVE
+		for (i = 0u; i < DM_J4310_NUM; i++)
+		{
+			if (HAL_GetTick() < DM_J4310_START_DELAY_MS)
+			{
+				continue;
+			}
+
+			if (ready[i] == 0u)
+			{
+				/* 控制模式自动识别：依次用 MIT / PV / 纯速度 的帧 ID 发“清错+使能”，
+				 * 哪种模式能收到回包就锁定哪种——电机里实际配的是哪种都不用手改。 */
+				if ((HAL_GetTick() - probe_tick[i]) >= DM_J4310_PROBE_STEP_MS)
+				{
+					probe_tick[i] = HAL_GetTick();
+
+					if (probe_ok[i] != dm_joint[i].ok_cnt)
+					{
+						ready[i] = 1u;      /* 上一拍用的模式对，锁定 */
+					}
+					else
+					{
+						if (probe_idx[i] >= 3u)
+						{
+							probe_idx[i] = 0u;   /* 三种都试过没回包，从头再来 */
+						}
+						dm_joint[i].mode = dm_probe_modes[probe_idx[i]];
+						probe_idx[i]++;
+						probe_ok[i] = dm_joint[i].ok_cnt;
+						DM_J4310_ClearError(&dm_joint[i]);
+						DM_J4310_Enable(&dm_joint[i]);
+					}
+				}
+				continue;   /* 探测期间不发心跳、不跑位置控制 */
+			}
+
+			if (dm_joint[i].err == (uint8_t)eDM_J4310_ERR_ENABLED)
+			{
+				if (step[i] == 0u)
+				{
+					/* 已使能：以当前位置为基准转 +30°，之后由心跳保持。
+					 * MIT 用位置刚度 Kp/Kd；PV 直接给“目标角度 + 匀速段速度”。 */
+					if (dm_joint[i].mode == (uint8_t)eDM_J4310_MODE_PV)
+					{
+						DM_J4310_PVMode(&dm_joint[i],
+						                dm_joint[i].real_pos + DM_J4310_START_ANGLE_RAD,
+						                DM_J4310_START_PV_VEL);
+					}
+					else
+					{
+						DM_J4310_PositionMode(&dm_joint[i],
+						                      dm_joint[i].real_pos + DM_J4310_START_ANGLE_RAD,
+						                      DM_J4310_START_KP,
+						                      DM_J4310_START_KD);
+					}
+					step[i] = 1u;
+				}
+			}
+			else if ((HAL_GetTick() - enable_tick[i]) >= DM_J4310_ENABLE_RETRY_MS)
+			{
+				enable_tick[i] = HAL_GetTick();
+				DM_J4310_ClearError(&dm_joint[i]);
+				DM_J4310_Enable(&dm_joint[i]);
+			}
+		}
+#endif
+
+		/* 心跳：识别出模式且已使能才发；PV 还没算好目标时不发（避免 p_des=0 甩车） */
+		for (i = 0u; i < DM_J4310_NUM; i++)
+		{
+			if ((ready[i] != 0u) && (dm_joint[i].enabled != 0u))
+			{
+				if ((dm_joint[i].mode == (uint8_t)eDM_J4310_MODE_PV) && (step[i] == 0u))
+				{
+					continue;
+				}
+				DM_J4310_Send(&dm_joint[i]);   /* 心跳：重发上一帧，走到 30° 后保持 */
+			}
+		}
+		osDelay(DM_J4310_SEND_PERIOD_MS);
+	}
+}
+
 void Chassis_C620_Init(void)
 {
 	FDCAN_Init(&hfdcan1);
@@ -493,6 +727,8 @@ void Chassis_C620_Init(void)
 
 	FDCAN_Init(&hfdcan3);   // 启动 HI14 IMU 所在总线（CANopen/J1939 接收；原来只在未调用的 Upper_Init 里启动）
 	HI14_Init();            // bsp 驱动：清零 IMU 状态（解析在 bsp/chassis/gyro_HI14.c）
+
+	DM_J4310_App_Init();    // 启动 CAN2 + 建 DM 句柄（1Mbps；500ms 后由 DM_J4310_Task 使能并转 +30°）
 
 	/* 整定 v7：RB 轮摩擦特别低，闭环轻阻尼、超调 ~20%——单独降 Kp（不影响其他三轮） */
 	wheelRB.speed_pid.kp = 4.0f;
